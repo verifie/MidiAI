@@ -95,8 +95,8 @@ DRUM_FILLS = [
 # ================================== MELODY GENERATION DATA ==================================
 MELODY_SCALE = [69, 72, 74, 76, 79, 81, 84] # A minor pentatonic (A4, C5, D5, E5, G5, A5, C6)
 MELODY_RHYTHMS = {
-    'Fanga': [[0.75, 1.75, 3.25], [0.5, 1.5, 2.5, 3.5], [0, 2.75, 3.75]],
-    'Kpanlogo': [[0.75, 1.75, 2.75, 3.75], [0.5, 2, 2.5], [1.25, 3.25]]
+    'Fanga (Liberia/Guinea)': [[0.75, 1.75, 3.25], [0.5, 1.5, 2.5, 3.5], [0, 2.75, 3.75]],
+    'Kpanlogo (Ga - Ghana)': [[0.75, 1.75, 2.75, 3.75], [0.5, 2, 2.5], [1.25, 3.25]]
 }
 MELODIC_MOTIFS = [[0, 1, 2], [0, -1, -2], [0, 2, 1], [0, -1, 1], [0, 0, 1]]
 
@@ -169,58 +169,71 @@ class RhythmicMixPlayer(threading.Thread):
                     self.scheduler.schedule_event(note_off_time, [0x80 | channel, note, 0])
         time_to_wait = total_duration - (time.monotonic() - section_start_time)
         if time_to_wait > 0: self.stop_event.wait(time_to_wait)
+    
+    def _handle_groove(self, current_rhythm, parts_with_channel):
+        play_measures = random.randint(4, 6)
+        self._play_section(current_rhythm, num_measures=play_measures, custom_parts=parts_with_channel.items())
+        if random.random() < 0.8: self.state = self.STATE_DECONSTRUCT
+
+    def _handle_deconstruct(self, current_rhythm, parts_with_channel):
+        print("... Deconstructing ...")
+        core_parts = [p for p in current_rhythm['build_order'] if "bell" in p.lower() or "shaker" in p.lower()]
+        parts_to_remove = [p for p in current_rhythm['build_order'] if p not in core_parts]
+        parts_to_remove.reverse()
+        active_parts = list(current_rhythm['build_order'])
+        for part_to_remove in parts_to_remove:
+            if self.stop_event.is_set(): return
+            build_filter = lambda p_name: p_name in active_parts
+            self._play_section(current_rhythm, 1, part_filter=build_filter, custom_parts=parts_with_channel.items())
+            active_parts.remove(part_to_remove)
+        self.state = self.STATE_BREAKDOWN
+
+    def _handle_breakdown(self, current_rhythm, parts_with_channel):
+        print("... Breakdown ...")
+        core_parts_filter = lambda p: "bell" in p.lower() or "shaker" in p.lower()
+        self._play_section(current_rhythm, num_measures=2, part_filter=core_parts_filter, custom_parts=parts_with_channel.items())
+        self.state = self.STATE_BUILDUP
+            
+    def _handle_buildup(self, current_rhythm, parts_with_channel):
+        print("... Buildup ...")
+        build_order = list(current_rhythm['build_order'])
+        core_parts = [p for p in build_order if "bell" in p.lower() or "shaker" in p.lower()]
+        parts_to_add = [p for p in build_order if p not in core_parts]
+        active_parts = core_parts[:]
+        for part_to_add in parts_to_add:
+            if self.stop_event.is_set(): return
+            build_filter = lambda p_name: p_name in active_parts
+            self._play_section(current_rhythm, 1, part_filter=build_filter, custom_parts=parts_with_channel.items())
+            active_parts.append(part_to_add)
+        self.state = self.STATE_FILL_SWAP
+            
+    def _handle_fill_swap(self, current_rhythm):
+        print("... Fill and Swap ...")
+        fill_pattern = random.choice(DRUM_FILLS)
+        fill_with_channel = [(n[0], n[1], n[2], n[3], DRUM_CHANNEL) for n in fill_pattern]
+        fill_rhythm = {"bpm": current_rhythm['bpm'], "beats_per_measure": 4, "parts": {"fill": fill_with_channel}}
+        self._play_section(fill_rhythm, num_measures=1)
+        self.current_rhythm_idx = 1 - self.current_rhythm_idx
+        next_rhythm = self.rhythms[self.current_rhythm_idx]
+        print(f"---> Swapped to {next_rhythm['name']} <---"); self.state = self.STATE_GROOVE
 
     def run(self):
         current_rhythm = self.rhythms[self.current_rhythm_idx]
         print(f"\n---> Starting mix with {current_rhythm['name']}...")
         while not self.stop_event.is_set():
             current_rhythm = self.rhythms[self.current_rhythm_idx]
-            rhythm_parts_with_channel = {name: [(n[0], n[1], n[2], n[3], DRUM_CHANNEL) for n in notes] for name, notes in current_rhythm['parts'].items()}
+            parts_with_channel = {name: [(n[0], n[1], n[2], n[3], DRUM_CHANNEL) for n in notes] for name, notes in current_rhythm['parts'].items()}
             
             if self.state == self.STATE_GROOVE:
-                play_measures = random.randint(4, 6)
-                self._play_section(current_rhythm, num_measures=play_measures, custom_parts=rhythm_parts_with_channel.items())
-                if random.random() < 0.8: self.state = self.STATE_DECONSTRUCT
-            
+                self._handle_groove(current_rhythm, parts_with_channel)
             elif self.state == self.STATE_DECONSTRUCT:
-                print("... Deconstructing ...")
-                core_parts = [p for p in current_rhythm['build_order'] if "bell" in p.lower() or "shaker" in p.lower()]
-                parts_to_remove = [p for p in current_rhythm['build_order'] if p not in core_parts]
-                parts_to_remove.reverse()
-                active_parts = list(current_rhythm['build_order'])
-                for part_to_remove in parts_to_remove:
-                    build_filter = lambda p_name: p_name in active_parts
-                    self._play_section(current_rhythm, 1, part_filter=build_filter, custom_parts=rhythm_parts_with_channel.items())
-                    active_parts.remove(part_to_remove)
-                self.state = self.STATE_BREAKDOWN
-
+                self._handle_deconstruct(current_rhythm, parts_with_channel)
             elif self.state == self.STATE_BREAKDOWN:
-                print("... Breakdown ...")
-                core_parts_filter = lambda p: "bell" in p.lower() or "shaker" in p.lower()
-                self._play_section(current_rhythm, num_measures=2, part_filter=core_parts_filter, custom_parts=rhythm_parts_with_channel.items())
-                self.state = self.STATE_BUILDUP
-            
+                self._handle_breakdown(current_rhythm, parts_with_channel)
             elif self.state == self.STATE_BUILDUP:
-                print("... Buildup ...")
-                build_order = list(current_rhythm['build_order'])
-                core_parts = [p for p in build_order if "bell" in p.lower() or "shaker" in p.lower()]
-                parts_to_add = [p for p in build_order if p not in core_parts]
-                active_parts = core_parts
-                for part_to_add in parts_to_add:
-                    build_filter = lambda p_name: p_name in active_parts
-                    self._play_section(current_rhythm, 1, part_filter=build_filter, custom_parts=rhythm_parts_with_channel.items())
-                    active_parts.append(part_to_add)
-                self.state = self.STATE_FILL_SWAP
-            
+                self._handle_buildup(current_rhythm, parts_with_channel)
             elif self.state == self.STATE_FILL_SWAP:
-                print("... Fill and Swap ...")
-                fill_pattern = random.choice(DRUM_FILLS)
-                fill_with_channel = [(n[0], n[1], n[2], n[3], DRUM_CHANNEL) for n in fill_pattern]
-                fill_rhythm = {"bpm": current_rhythm['bpm'], "beats_per_measure": 4, "parts": {"fill": fill_with_channel}}
-                self._play_section(fill_rhythm, num_measures=1)
-                self.current_rhythm_idx = 1 - self.current_rhythm_idx
-                next_rhythm = self.rhythms[self.current_rhythm_idx]
-                print(f"---> Swapped to {next_rhythm['name']} <---"); self.state = self.STATE_GROOVE
+                self._handle_fill_swap(current_rhythm)
     def stop(self): self.stop_event.set()
 
 class MelodicMixPlayer(RhythmicMixPlayer):
@@ -228,6 +241,7 @@ class MelodicMixPlayer(RhythmicMixPlayer):
         super().__init__(scheduler, rhythm1_data, rhythm2_data)
         scheduler.midiout.send_message([0xC0 | MELODY_CHANNEL, MELODY_INSTRUMENT])
         print(f"Melody instrument set to Kalimba on channel {MELODY_CHANNEL + 1}.")
+        self.last_note_idx = len(MELODY_SCALE) // 2
 
     def _generate_melodic_phrase(self, rhythm_name, start_note_idx):
         motif = random.choice(MELODIC_MOTIFS)
@@ -242,71 +256,26 @@ class MelodicMixPlayer(RhythmicMixPlayer):
             duration = 0.4; velocity = random.randint(80, 110)
             phrase.append((beat, note, velocity, duration, MELODY_CHANNEL))
         return phrase, current_note_idx
-
+    
+    def _handle_groove(self, current_rhythm, parts_with_channel):
+        play_measures = random.randint(2, 4) * 2 # Play in pairs for call/response
+        for i in range(play_measures):
+            if self.stop_event.is_set(): break
+            # Generate melody for this measure
+            phrase, self.last_note_idx = self._generate_melodic_phrase(current_rhythm['name'], self.last_note_idx)
+            # Combine with rhythmic parts
+            all_parts = parts_with_channel.copy()
+            all_parts['melody'] = phrase
+            self._play_section(current_rhythm, num_measures=1, custom_parts=all_parts.items())
+        
+        # Transition to the next state
+        if random.random() < 0.7:
+            self.state = self.STATE_DECONSTRUCT
+    
     def run(self):
+        # Override the main run loop to insert the print statement at the right time
         print(f"\n---> Starting Melodic Mix with {self.rhythms[0]['name']}...")
-        last_note_idx = len(MELODY_SCALE) // 2
-        while not self.stop_event.is_set():
-            current_rhythm = self.rhythms[self.current_rhythm_idx]
-            if self.state == self.STATE_GROOVE:
-                play_measures = random.randint(2, 4) * 2
-                for i in range(play_measures):
-                    rhythm_parts_with_channel = {name: [(n[0], n[1], n[2], n[3], DRUM_CHANNEL) for n in notes] for name, notes in current_rhythm['parts'].items()}
-                    phrase, last_note_idx = self._generate_melodic_phrase(current_rhythm['name'], last_note_idx)
-                    all_parts = rhythm_parts_with_channel
-                    all_parts['melody'] = phrase
-                    self._play_section(current_rhythm, num_measures=1, custom_parts=all_parts.items())
-                if random.random() < 0.7: self.state = self.STATE_DECONSTRUCT
-            else:
-                # When not in groove, call the parent's logic for one state transition
-                super().run() # This is now incorrect, needs to be refactored
-                # The above line is the problem. It should not call super().run()
-                # Instead, it should just execute the logic for the other states itself.
-                # Let's rewrite this part.
-                current_rhythm = self.rhythms[self.current_rhythm_idx]
-                rhythm_parts_with_channel = {name: [(n[0], n[1], n[2], n[3], DRUM_CHANNEL) for n in notes] for name, notes in current_rhythm['parts'].items()}
-                
-                if self.state == self.STATE_DECONSTRUCT:
-                    print("... Deconstructing ...")
-                    core_parts = [p for p in current_rhythm['build_order'] if "bell" in p.lower() or "shaker" in p.lower()]
-                    parts_to_remove = [p for p in current_rhythm['build_order'] if p not in core_parts]
-                    parts_to_remove.reverse()
-                    active_parts = list(current_rhythm['build_order'])
-                    for part_to_remove in parts_to_remove:
-                        build_filter = lambda p_name: p_name in active_parts
-                        self._play_section(current_rhythm, 1, part_filter=build_filter, custom_parts=rhythm_parts_with_channel.items())
-                        if self.stop_event.is_set(): break
-                        active_parts.remove(part_to_remove)
-                    self.state = self.STATE_BREAKDOWN
-
-                elif self.state == self.STATE_BREAKDOWN:
-                    print("... Breakdown ...")
-                    core_parts_filter = lambda p: "bell" in p.lower() or "shaker" in p.lower()
-                    self._play_section(current_rhythm, num_measures=2, part_filter=core_parts_filter, custom_parts=rhythm_parts_with_channel.items())
-                    self.state = self.STATE_BUILDUP
-                
-                elif self.state == self.STATE_BUILDUP:
-                    print("... Buildup ...")
-                    build_order = list(current_rhythm['build_order'])
-                    core_parts = [p for p in build_order if "bell" in p.lower() or "shaker" in p.lower()]
-                    parts_to_add = [p for p in build_order if p not in core_parts]
-                    active_parts = core_parts[:]
-                    for part_to_add in parts_to_add:
-                        build_filter = lambda p_name: p_name in active_parts
-                        self._play_section(current_rhythm, 1, part_filter=build_filter, custom_parts=rhythm_parts_with_channel.items())
-                        if self.stop_event.is_set(): break
-                        active_parts.append(part_to_add)
-                    self.state = self.STATE_FILL_SWAP
-                
-                elif self.state == self.STATE_FILL_SWAP:
-                    print("... Fill and Swap ...")
-                    fill_pattern = random.choice(DRUM_FILLS)
-                    fill_with_channel = [(n[0], n[1], n[2], n[3], DRUM_CHANNEL) for n in fill_pattern]
-                    fill_rhythm = {"bpm": current_rhythm['bpm'], "beats_per_measure": 4, "parts": {"fill": fill_with_channel}}
-                    self._play_section(fill_rhythm, num_measures=1)
-                    self.current_rhythm_idx = 1 - self.current_rhythm_idx
-                    next_rhythm = self.rhythms[self.current_rhythm_idx]
-                    print(f"---> Swapped to {next_rhythm['name']} <---"); self.state = self.STATE_GROOVE
+        super().run() # Now call the parent's run method which contains the state machine
 
 # ================================== Main Application ==================================
 def display_menu():
