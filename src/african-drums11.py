@@ -1,5 +1,7 @@
 
-# AI The melody is too random. Match some african style melodies to the rhythms
+# AI Prompt: make the melody layered, complementary and polyphonic, maybe alternate between a few instruments on rhythm change. Remove the fill and swap, and change the buildup so it builds up to the next rhythm.
+
+
 import rtmidi
 import threading
 import time
