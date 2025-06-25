@@ -1,7 +1,5 @@
 
 # AI Prompt: For option 9 Make the melodies very different, add layers a complexities,, make the breakdown and buildup faster. Also change through all rhythms.
-
-
 import rtmidi
 import threading
 import time
@@ -180,7 +178,7 @@ class RhythmPlayer(threading.Thread):
     def stop(self): self.stop_event.set()
 
 class RhythmicMixPlayer(threading.Thread):
-    STATE_GROOVE, STATE_DECONSTRUCT, STATE_BREAKDOWN, STATE_BUILDUP = range(4)
+    STATE_GROOVE, STATE_DECONSTRUCT, STATE_BUILDUP = range(3)
     def __init__(self, scheduler, rhythm_list):
         super().__init__(daemon=True)
         self.scheduler = scheduler; self.rhythms = rhythm_list
@@ -234,7 +232,7 @@ class RhythmicMixPlayer(threading.Thread):
         next_parts = self._get_parts_with_channel(next_rhythm, DRUM_CHANNEL)
         
         # Start with the current core part
-        current_core_part_name = [p for p in current_rhythm['build_order'] if "bell" in p.lower() or "shaker" in p.lower()][0]
+        current_core_part_name = current_rhythm['build_order'][0]
         active_parts = {current_core_part_name: current_parts[current_core_part_name]}
         
         # Build up the next rhythm over 2 measures
@@ -242,7 +240,7 @@ class RhythmicMixPlayer(threading.Thread):
             if self.stop_event.is_set(): return
             
             # Add next rhythm's core part
-            next_core_part_name = [p for p in next_rhythm['build_order'] if "bell" in p.lower() or "shaker" in p.lower()][0]
+            next_core_part_name = next_rhythm['build_order'][0]
             active_parts[next_core_part_name] = next_parts[next_core_part_name]
             
             # Add another part from the next rhythm
@@ -306,7 +304,7 @@ class MelodicMixPlayer(RhythmicMixPlayer):
             harmony_phrase_1.append((beat, note, VEL_GHOST, 0.6, harm_ch_1))
 
         # Generate harmony 2 (long notes)
-        harmony_pattern_2 = [(0, -4), (2, -2)] if rhythm_name == "Kpanlogo (Ga - Ghana)" else [(0, -4)]
+        harmony_pattern_2 = [(0, -4), (2, -2)] if "Kpanlogo" in rhythm_name else [(0, -4)]
         harmony_phrase_2 = []
         for beat, degree in harmony_pattern_2:
             note_idx = max(0, min(len(MELODY_SCALE) -1, base_note_idx + degree))
